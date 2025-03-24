@@ -81,7 +81,7 @@ ASGI_APPLICATION = 'Project.asgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'employeerecordmanagement',
+        'NAME': 'employeedata',
         'USER':'root',
         'PASSWORD':'Admin@123',
     }

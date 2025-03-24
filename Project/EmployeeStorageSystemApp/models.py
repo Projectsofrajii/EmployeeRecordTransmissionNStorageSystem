@@ -2,19 +2,9 @@ from django.db import models
 
 # Create your models here.
 
-# class Employeedetails(models.Model):
-#     employee = models.ForeignKey('Employeerecord', models.DO_NOTHING)
-#     address = models.CharField(max_length=255, blank=True, null=True)
-#     phone_number = models.CharField(unique=True, max_length=15, blank=True, null=True)
-#     emergency_contact = models.CharField(max_length=15, blank=True, null=True)
-
-#     class Meta:
-#         managed = False
-        # db_table = 'employeedetails'
-
-
 class EmployeeRecord(models.Model):
-    employee_id = models.CharField(primary_key=True, max_length=20)
+    id = models.AutoField(primary_key=True) 
+    employee_id = models.CharField(max_length=20, unique=True) 
     name = models.CharField(max_length=100)
     email = models.CharField(unique=True, max_length=100)
     department = models.CharField(max_length=50)

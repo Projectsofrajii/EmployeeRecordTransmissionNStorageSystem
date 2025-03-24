@@ -1,12 +1,14 @@
 from functools import wraps
 import time
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status 
+from rest_framework.views import APIView  # type: ignore
+from rest_framework.response import Response  # type: ignore
+from rest_framework import status  # type: ignore
 from .models import * 
 from .serializers import *
 from django.db import IntegrityError
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import MultiPartParser  # type: ignore
+import pandas  # type: ignore
+import threading
 
 # Create your views here.
 
@@ -21,16 +23,10 @@ def log_execution_time(func):
         return response
     return wrapper
 
-from datetime import datetime
-from rest_framework.parsers import MultiPartParser
-import csv
-import io
-
 class EmployeeAPI(APIView):
     parser_classes = [MultiPartParser]  
 
     def post(self, request):
-        print("Request Data:", request.data)
 
         if 'file' not in request.FILES:
             return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
@@ -38,32 +34,43 @@ class EmployeeAPI(APIView):
         uploaded_file = request.FILES['file']
 
         try:
-            decoded_file = uploaded_file.read().decode('utf-8')
-            reader = csv.DictReader(io.StringIO(decoded_file))
-            records = list(reader)
+            filedata = pandas.read_csv(uploaded_file, dtype=str)  
+            if filedata.empty:
+                return Response({"message": "Uploaded CSV is empty."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            filedata["salary"] = filedata["salary"].astype(float)            
+            filedata["date_of_joining"] = pandas.to_datetime(filedata["date_of_joining"], format="%d-%m-%Y").dt.strftime("%Y-%m-%d")            
+            filedata["id"] = filedata["id"].astype(int)
 
-            employees_to_insert = []
+            odd_records = filedata[filedata["id"] % 2 != 0]
+            even_records = filedata[filedata["id"] % 2 == 0]
+        
+            employees_odd = [EmployeeRecord(**row) for _, row in odd_records.iterrows()]
+            employees_even = [EmployeeRecord(**row) for _, row in even_records.iterrows()]
+            
+            def insert_records(records):
+                if records:
+                    EmployeeRecord.objects.bulk_create(records, ignore_conflicts=True)
+            
+            thread1 = threading.Thread(target=insert_records, args=(employees_odd,))
+            thread2 = threading.Thread(target=insert_records, args=(employees_even,))
+            
+            thread1.start()
+            print('Thread1 started..')
+            thread2.start()
+            print('Thread2 started..')
 
-            for record in records:
-                try:
-                    record["salary"] = float(record["salary"])  
-                    record["date_of_joining"] = datetime.strptime(record["date_of_joining"].strip(), "%d-%m-%Y").strftime("%Y-%m-%d")
-                    employees_to_insert.append(EmployeeRecord(**record))
+            thread1.join()
+            thread2.join()
+            
+            return Response({"message": "File processed successfully with multi-threading (duplicates ignored)"}, status=status.HTTP_201_CREATED)
 
-                except ValueError as ve:
-                    return Response({"error": f"Invalid date format for {record['date_of_joining']}. Use DD-MM-YYYY."},
-                                    status=status.HTTP_400_BAD_REQUEST)
-
-            if employees_to_insert:
-                EmployeeRecord.objects.bulk_create(employees_to_insert, ignore_conflicts=True)
-                return Response({"message": "File processed successfully (duplicates ignored)"}, status=status.HTTP_201_CREATED)
-            else:
-                return Response({"message": "No new records inserted (all were duplicates)"}, status=status.HTTP_200_OK)
+        except ValueError as ve:
+            return Response({"error": f"Invalid data format: {str(ve)}"}, status=status.HTTP_400_BAD_REQUEST)
 
         except IntegrityError as ie:
             return Response({"error": f"Database Integrity Error: {str(ie)}"}, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
             return Response({"error": f"Failed to process CSV: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
 
